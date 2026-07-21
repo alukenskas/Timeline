@@ -28,6 +28,7 @@
     --c-em:#e0763d;
     --c-qm:#e0563d;
     --c-fm:#ff3d5e;
+    --c-orderdeadline:#9d6fe0;
 
     --mono:'IBM Plex Mono','SF Mono',Consolas,monospace;
     --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
@@ -37,6 +38,17 @@
     --status-big-bg:#3d3414;    --status-big-fg:#e0c23d;    --status-big-bd:#6b5b22;
     --status-likely-bg:#1c3340; --status-likely-fg:#5bb6e0; --status-likely-bd:#2e5a6b;
     --status-tbd-bg:#33272f;    --status-tbd-fg:#c98fb0;    --status-tbd-bd:#5a3f4f;
+    --status-medpot-bg:#2a2440; --status-medpot-fg:#b39ee0; --status-medpot-bd:#4a3f6b;
+
+    /* priority badges */
+    --pri-high-bg:#3d1c1c;  --pri-high-fg:#ff8a8a;  --pri-high-bd:#6b2e2e;
+    --pri-med-bg:#3d3414;   --pri-med-fg:#e0c23d;   --pri-med-bd:#6b5b22;
+    --pri-low-bg:#1c3d2a;   --pri-low-fg:#6fe09a;   --pri-low-bd:#2e6b46;
+    --pri-other-bg:#1c2733; --pri-other-fg:#8fb0c9; --pri-other-bd:#2e4a5a;
+
+    /* hard-deadline flag */
+    --hd-yes-bg:#3d1c1c;   --hd-yes-fg:#ff8a8a;   --hd-yes-bd:#6b2e2e;
+    --hd-maybe-bg:#3d3414; --hd-maybe-fg:#e0c23d; --hd-maybe-bd:#6b5b22;
   }
 
   *{box-sizing:border-box;}
@@ -250,7 +262,7 @@
   /* fixed, never-scrolls-horizontally label column */
   .labels-panel{
     flex-shrink:0;
-    width:200px;
+    width:280px;
     border-right:1px solid var(--line);
     overflow:hidden;
     position:relative;
@@ -417,6 +429,36 @@
   .status-badge.likely{background:var(--status-likely-bg);color:var(--status-likely-fg);border:1px solid var(--status-likely-bd);}
   .status-badge.tbd{background:var(--status-tbd-bg);color:var(--status-tbd-fg);border:1px solid var(--status-tbd-bd);}
   .status-badge.other{background:var(--panel-2);color:var(--text-faint);border:1px solid var(--line);}
+  .status-badge.medpot{background:var(--status-medpot-bg);color:var(--status-medpot-fg);border:1px solid var(--status-medpot-bd);}
+
+  .priority-badge{
+    font-family:var(--mono);
+    font-size:8.5px;
+    font-weight:700;
+    letter-spacing:0.03em;
+    padding:1px 5px;
+    border-radius:3px;
+    white-space:nowrap;
+    flex-shrink:0;
+    text-transform:uppercase;
+  }
+  .priority-badge.p-high{background:var(--pri-high-bg);color:var(--pri-high-fg);border:1px solid var(--pri-high-bd);}
+  .priority-badge.p-med{background:var(--pri-med-bg);color:var(--pri-med-fg);border:1px solid var(--pri-med-bd);}
+  .priority-badge.p-low{background:var(--pri-low-bg);color:var(--pri-low-fg);border:1px solid var(--pri-low-bd);}
+  .priority-badge.p-other{background:var(--pri-other-bg);color:var(--pri-other-fg);border:1px solid var(--pri-other-bd);}
+
+  .deadline-flag{
+    font-family:var(--mono);
+    font-size:8.5px;
+    font-weight:700;
+    letter-spacing:0.03em;
+    padding:1px 5px;
+    border-radius:3px;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .deadline-flag.yes{background:var(--hd-yes-bg);color:var(--hd-yes-fg);border:1px solid var(--hd-yes-bd);}
+  .deadline-flag.maybe{background:var(--hd-maybe-bg);color:var(--hd-maybe-fg);border:1px solid var(--hd-maybe-bd);}
 
   .row-track{
     position:relative;
@@ -448,6 +490,23 @@
     color:var(--text-faint);
     white-space:nowrap;
   }
+
+  /* components order-deadline marker (T-6m order deadline) */
+  .order-marker{
+    position:absolute;
+    top:50%;
+    transform:translate(-50%,-50%);
+    z-index:2;
+    cursor:pointer;
+  }
+  .order-marker .flag{
+    width:0;height:0;
+    border-left:5px solid transparent;
+    border-right:5px solid transparent;
+    border-bottom:9px solid var(--c-orderdeadline);
+    opacity:0.85;
+  }
+  .order-marker:hover .flag{opacity:1;transform:scale(1.15);}
 
   /* connector line from start to milestones */
   .connector{
@@ -529,8 +588,8 @@
   }
 
   @media (max-width:700px){
-    .labels-panel{width:140px;}
-    .row-label{width:140px;padding:0 8px;}
+    .labels-panel{width:180px;}
+    .row-label{width:180px;padding:0 8px;}
     h1{font-size:18px;}
   }
 </style>
@@ -541,7 +600,7 @@
   <header>
     <div class="title-block">
       <h1>Hardware Milestone Timeline</h1>
-      <div class="subtitle">SDU &rarr; AMP2 &rarr; FTS&nbsp;FM &rarr; GIMBAL &rarr; FSO &rarr; FSO&nbsp;MODULE &rarr; EM &rarr; QM &rarr; FM</div>
+      <div class="subtitle">SDU &rarr; FTS&nbsp;FM &rarr; AMP2 &rarr; FSO &rarr; FSO&nbsp;MODULE &rarr; EM &rarr; QM &rarr; GIMBAL &rarr; ITEM</div>
     </div>
     <div class="controls">
       <span class="header-sync" id="headerSync"><span class="sync-dot" id="syncDot"></span><span id="syncText">not connected</span></span>
@@ -614,17 +673,18 @@
   /* ===================== CONFIG ===================== */
 
   // Milestone column definitions, in build-maturity order.
-  // Each has the qty column header and the "when" column header as they appear in source.
+  // Each has the qty column header, the "when" column header and (optionally) a
+  // per-milestone status column, as they appear in the source sheet.
   const MILESTONES = [
-    { key:'SDU',       qtyCol:'SDU, Qty.',          whenCol:'When SDU',        color:'var(--c-sdu)' },
-    { key:'AMP2',      qtyCol:'AMP2, Qty.',         whenCol:'When AMP2',       color:'var(--c-amp2)' },
-    { key:'FTS FM',    qtyCol:'FTS FM, Qty.',       whenCol:'When FTS FM',     color:'var(--c-fts)' },
-    { key:'Gimbal',    qtyCol:'Gimbal, Qty.',       whenCol:'When Gimbal',     color:'var(--c-gimbal)' },
-    { key:'FSO',       qtyCol:'FSO, Qty.',          whenCol:'When FSO',        color:'var(--c-fso)' },
-    { key:'FSO Module',qtyCol:'FSO Module, Qty.',   whenCol:'When FSO module', color:'var(--c-fsomod)' },
-    { key:'EM',        qtyCol:'EM QTY',             whenCol:'When EM',         color:'var(--c-em)' },
-    { key:'QM',        qtyCol:'QM, Qty.',           whenCol:'When QM',         color:'var(--c-qm)' },
-    { key:'FM',        qtyCol:'FM, Qty.',           whenCol:'When FM',         color:'var(--c-fm)' },
+    { key:'SDU',        qtyCol:'SDU, Qty.',        whenCol:'SDU, When',        statusCol:null,               color:'var(--c-sdu)' },
+    { key:'FTS FM',     qtyCol:'FTS FM, Qty.',     whenCol:'FTS FM, When',     statusCol:'FTS FM, Status',   color:'var(--c-fts)' },
+    { key:'AMP2',       qtyCol:'AMP2, Qty.',       whenCol:'AMP2, When',       statusCol:'AMP2, Status',     color:'var(--c-amp2)' },
+    { key:'FSO',        qtyCol:'FSO, Qty.',        whenCol:'FSO, When',        statusCol:'FSO, Status',      color:'var(--c-fso)' },
+    { key:'FSO Module', qtyCol:'FSO Module, Qty.', whenCol:'FSO module, When', statusCol:'FSO Module, Status',color:'var(--c-fsomod)' },
+    { key:'EM',         qtyCol:'EM, Qty.',         whenCol:'EM, When',         statusCol:'EM, Status',       color:'var(--c-em)' },
+    { key:'QM',         qtyCol:'QM, Qty.',         whenCol:'QM, When',         statusCol:'QM, Status',       color:'var(--c-qm)' },
+    { key:'Gimbal',     qtyCol:'Gimbal, Qty.',     whenCol:'Gimbal, When',     statusCol:'Status, Gimbal',   color:'var(--c-gimbal)' },
+    { key:'Item',       qtyCol:'Item, Qty.',       whenCol:'When Item',        statusCol:null,               color:'var(--c-fm)' },
   ];
 
   const SAMPLE_DATA = ``;
@@ -673,26 +733,52 @@
 
   function statusClass(status){
     if(!status) return null;
-    const s = status.trim().toUpperCase();
+    // strip leading pipeline numbering like "1. ", "2. " etc.
+    const s = status.trim().toUpperCase().replace(/^\d+\.\s*/, '');
     if(s === 'DONE DEAL' || s === 'DONE') return 'done';
     if(s === 'BIG POTENTIAL') return 'big';
     if(s === 'LIKELY') return 'likely';
     if(s === 'TBD') return 'tbd';
+    if(s === 'MED POTENTIAL' || s === 'MEDIUM POTENTIAL') return 'medpot';
     if(s === '') return null;
     return 'other';
+  }
+
+  function priorityClass(priority){
+    if(!priority) return null;
+    const p = priority.trim().toLowerCase();
+    if(p === '') return null;
+    if(p.includes('high') || p.includes('svarb')) return 'p-high'; // "svarbus" (LT) = important/urgent
+    if(p.includes('med')) return 'p-med';
+    if(p.includes('low')) return 'p-low';
+    return 'p-other';
+  }
+
+  function deadlineFlagClass(hardDeadline){
+    if(!hardDeadline) return null;
+    const d = hardDeadline.trim().toLowerCase();
+    if(d === 'yes') return 'yes';
+    if(d === 'maybe') return 'maybe';
+    return null; // blank or "-" — no flag shown
   }
 
   function parseTable(raw){
     raw = raw.replace(/^﻿/, "");
     const lines = raw.split(/\r?\n/).filter(l => l.trim().length>0);
     if(lines.length < 2) throw new Error('Need a header row plus at least one data row.');
-    // Skip decorative top rows (e.g. merged group labels): if the first row has fewer
-    // non-empty cells than the second, it is not the real header — skip it.
+
+    // Skip decorative top rows (e.g. merged group labels like "ATLAS FLIGHT UNITS").
+    // The source sheet may have any number of these above the real header — scan the
+    // first several lines for the row that actually contains both "Product" and
+    // "Project" cells, and treat that as the header.
     let startLine = 0;
-    if(lines.length >= 2){
-      const firstNonEmpty = lines[0].split('\t').filter(c => c.trim().length > 0).length;
-      const secondNonEmpty = lines[1].split('\t').filter(c => c.trim().length > 0).length;
-      if(firstNonEmpty < secondNonEmpty) startLine = 1;
+    const scanLimit = Math.min(lines.length, 6);
+    for(let i=0;i<scanLimit;i++){
+      const cells = lines[i].split('\t').map(c => c.trim().toLowerCase());
+      if(cells.includes('product') && cells.includes('project')){
+        startLine = i;
+        break;
+      }
     }
 
     const header = splitTSVLine(lines[startLine]).map(h => h.trim());
@@ -719,6 +805,11 @@
     const idxProduct = colIndex('Product');
     const idxProject = colIndex('Project');
     const idxStart = colIndex('Start Date');
+    const idxPriority = colIndex('Priority');
+    const idxPriorityCalc = colIndex('Priority Calculated');
+    const idxLeadTime = colIndex('Lead time');
+    const idxHardDeadline = colIndex('Hard deadline?');
+    const idxOrderDeadline = colIndex('T-6m Components order deadline');
 
     if(idxProduct === -1 || idxProject === -1){
       throw new Error('Could not find "Product" and "Project" columns in header.');
@@ -727,7 +818,8 @@
     const milestoneIdx = MILESTONES.map(m => ({
       ...m,
       qtyIdx: colIndex(m.qtyCol),
-      whenIdx: colIndex(m.whenCol)
+      whenIdx: colIndex(m.whenCol),
+      statusIdx: m.statusCol ? colIndex(m.statusCol) : -1
     }));
 
     const rows = [];
@@ -740,14 +832,20 @@
       const startDate = idxStart!==-1 ? parseDate(cells[idxStart]) : null;
       const client = idxClient!==-1 ? (cells[idxClient]||'').trim() : '';
       const status = idxStatus!==-1 ? (cells[idxStatus]||'').trim() : '';
+      const priority = idxPriority!==-1 ? (cells[idxPriority]||'').trim() : '';
+      const priorityCalc = idxPriorityCalc!==-1 ? parseQty(cells[idxPriorityCalc]) : null;
+      const leadTime = idxLeadTime!==-1 ? parseQty(cells[idxLeadTime]) : null;
+      const hardDeadline = idxHardDeadline!==-1 ? (cells[idxHardDeadline]||'').trim() : '';
+      const orderDeadline = idxOrderDeadline!==-1 ? parseDate(cells[idxOrderDeadline]) : null;
 
       const milestones = [];
       milestoneIdx.forEach(m => {
         if(m.whenIdx === -1) return;
         const when = parseDate(cells[m.whenIdx]);
         const qty = m.qtyIdx!==-1 ? parseQty(cells[m.qtyIdx]) : null;
+        const mStatus = m.statusIdx!==-1 ? (cells[m.statusIdx]||'').trim() : '';
         if(when){
-          milestones.push({ key:m.key, color:m.color, date:when, qty:qty });
+          milestones.push({ key:m.key, color:m.color, date:when, qty:qty, status:mStatus });
         }
       });
 
@@ -756,6 +854,7 @@
 
       rows.push({
         product, project, startDate, milestones, client, status,
+        priority, priorityCalc, leadTime, hardDeadline, orderDeadline,
         rowIndex: i
       });
     }
@@ -799,7 +898,7 @@
     syncText: document.getElementById('syncText'),
   };
 
-  els.dataInput.value = "";
+  els.dataInput.value = SAMPLE_DATA;
 
   /* ===================== LEGEND ===================== */
 
@@ -810,12 +909,19 @@
     });
     html += `<div class="legend-divider"></div>`;
     html += `<div class="legend-item"><span class="legend-dot" style="background:var(--text-dim)"></span>Start date</div>`;
+    html += `<div class="legend-item"><span style="display:inline-block;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid var(--c-orderdeadline);"></span>Components order deadline</div>`;
     html += `<div class="legend-item"><span style="display:inline-block;width:10px;height:1.5px;background:var(--grid-today);"></span>Today</div>`;
     html += `<div class="legend-divider"></div>`;
     html += `<div class="legend-item"><span class="status-badge done">Done deal</span></div>`;
     html += `<div class="legend-item"><span class="status-badge big">Big potential</span></div>`;
+    html += `<div class="legend-item"><span class="status-badge medpot">Med potential</span></div>`;
     html += `<div class="legend-item"><span class="status-badge likely">Likely</span></div>`;
     html += `<div class="legend-item"><span class="status-badge tbd">TBD</span></div>`;
+    html += `<div class="legend-divider"></div>`;
+    html += `<div class="legend-item"><span class="priority-badge p-high">High</span></div>`;
+    html += `<div class="legend-item"><span class="priority-badge p-med">Med</span></div>`;
+    html += `<div class="legend-item"><span class="priority-badge p-low">Low</span></div>`;
+    html += `<div class="legend-item"><span class="deadline-flag yes">Hard deadline</span></div>`;
     els.legend.innerHTML = html;
   }
   buildLegend();
@@ -969,15 +1075,19 @@
   }
 
   function renderRowLabel(r, groupMode){
-    // meta line: show whichever of Product/Client isn't already implied by the group header
+    // meta line: show whichever of Product/Client isn't already implied by the group header,
+    // plus lead time when known.
     let metaBits = [];
     if(groupMode !== 'Product') metaBits.push(r.product);
     metaBits.push(r.startDate ? fmtDate(r.startDate) : 'no start date');
+    if(r.leadTime !== null && r.leadTime !== undefined) metaBits.push(`lead ${r.leadTime}mo`);
     const metaText = metaBits.join(' · ');
 
     const sClass = statusClass(r.status);
+    const pClass = priorityClass(r.priority);
+    const dClass = deadlineFlagClass(r.hardDeadline);
     const showClientName = groupMode !== 'Client' && r.client;
-    const showClientLine = showClientName || sClass;
+    const showClientLine = showClientName || sClass || pClass || dClass;
 
     return `<div class="row">
       <div class="row-label">
@@ -985,6 +1095,8 @@
         <div class="meta">${escapeHtml(metaText)}</div>
         ${showClientLine ? `<div class="client-line">
           ${sClass ? `<span class="status-badge ${sClass}">${escapeHtml(r.status)}</span>` : ''}
+          ${pClass ? `<span class="priority-badge ${pClass}">${escapeHtml(r.priority)}</span>` : ''}
+          ${dClass ? `<span class="deadline-flag ${dClass}">${dClass === 'yes' ? 'hard deadline' : 'maybe deadline'}</span>` : ''}
           ${showClientName ? `<span class="client-name">${escapeHtml(r.client)}</span>` : ''}
         </div>` : ''}
       </div>
@@ -999,6 +1111,7 @@
 
     const points = [];
     if(r.startDate) points.push(dateToX(r.startDate, rangeStart));
+    if(r.orderDeadline) points.push(dateToX(r.orderDeadline, rangeStart));
     sortedMilestones.forEach(m => points.push(dateToX(m.date, rangeStart)));
 
     if(points.length >= 2){
@@ -1015,6 +1128,21 @@
       </div>`;
     }
 
+    if(r.orderDeadline){
+      const x = dateToX(r.orderDeadline, rangeStart);
+      const tooltipLabel = [r.project, r.client].filter(Boolean).join(' · ');
+      marksHtml += `<div class="order-marker"
+            style="left:${x}px;"
+            data-key="Components order deadline"
+            data-date="${r.orderDeadline.toISOString()}"
+            data-qty=""
+            data-status=""
+            data-label="${escapeHtml(tooltipLabel||'')}"
+            data-color="var(--c-orderdeadline)">
+          <div class="flag"></div>
+        </div>`;
+    }
+
     sortedMilestones.forEach(m => {
       const x = dateToX(m.date, rangeStart);
       const qtyLabel = (m.qty!==null && m.qty!==undefined) ? m.qty : '';
@@ -1024,6 +1152,7 @@
             data-key="${escapeHtml(m.key)}"
             data-date="${m.date.toISOString()}"
             data-qty="${qtyLabel}"
+            data-status="${escapeHtml(m.status||'')}"
             data-label="${escapeHtml(tooltipLabel||'')}"
             data-color="${m.color}">
           <div class="diamond" style="background:${m.color};"></div>
@@ -1046,11 +1175,12 @@
   /* ===================== TOOLTIP ===================== */
 
   function attachMarkerEvents(){
-    document.querySelectorAll('.milestone').forEach(el => {
+    document.querySelectorAll('.milestone, .order-marker').forEach(el => {
       el.addEventListener('mouseenter', (e)=>{
         const key = el.dataset.key;
         const date = new Date(el.dataset.date);
         const qty = el.dataset.qty;
+        const status = el.dataset.status;
         const label = el.dataset.label;
         const color = el.dataset.color;
         els.tooltip.innerHTML = `
@@ -1058,6 +1188,7 @@
           <div class="tt-row"><span>${escapeHtml(label)}</span></div>
           <div class="tt-row"><span>Date</span><span>${fmtDate(date)}</span></div>
           ${qty!=='' ? `<div class="tt-row"><span>Qty</span><span>${escapeHtml(qty)}</span></div>` : ''}
+          ${status!=='' ? `<div class="tt-row"><span>Status</span><span>${escapeHtml(status)}</span></div>` : ''}
         `;
         els.tooltip.style.display = 'block';
         positionTooltip(e);
@@ -1224,7 +1355,7 @@
   });
 
   els.resetBtn.addEventListener('click', ()=>{
-    els.dataInput.value = "";
+    els.dataInput.value = SAMPLE_DATA;
     DATA = SAMPLE_DATA ? parseTable(SAMPLE_DATA) : [];
     els.parseMsg.textContent = `Reset to sample data (${DATA.length} rows).`;
     els.parseMsg.className = 'parse-msg ok';
