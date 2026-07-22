@@ -156,6 +156,7 @@
   .parse-msg{font-family:var(--mono);font-size:11.5px;color:var(--text-dim);}
   .parse-msg.error{color:#ff7a7a;}
   .parse-msg.ok{color:#7adf9c;}
+  .parse-msg.warn{color:#e0c23d;}
 
   /* ---------- sheet connection panel ---------- */
   .sheet-panel{
@@ -600,7 +601,7 @@
   <header>
     <div class="title-block">
       <h1>Hardware Milestone Timeline</h1>
-      <div class="subtitle">SDU &rarr; FTS&nbsp;FM &rarr; AMP2 &rarr; FSO &rarr; FSO&nbsp;MODULE &rarr; EM &rarr; QM &rarr; GIMBAL &rarr; ITEM</div>
+      <div class="subtitle" id="subtitleLine">Milestones are detected automatically from your sheet's column headers</div>
     </div>
     <div class="controls">
       <span class="header-sync" id="headerSync"><span class="sync-dot" id="syncDot"></span><span id="syncText">not connected</span></span>
@@ -672,48 +673,165 @@
 
   /* ===================== CONFIG ===================== */
 
-  // Milestone column definitions, in build-maturity order.
-  // Each has the qty column header, the "when" column header and (optionally) a
-  // per-milestone status column, as they appear in the source sheet.
-  const MILESTONES = [
-    { key:'SDU',        qtyCol:'SDU, Qty.',        whenCol:'SDU, When',        statusCol:null,               color:'var(--c-sdu)' },
-    { key:'FTS FM',     qtyCol:'FTS FM, Qty.',     whenCol:'FTS FM, When',     statusCol:'FTS FM, Status',   color:'var(--c-fts)' },
-    { key:'AMP2',       qtyCol:'AMP2, Qty.',       whenCol:'AMP2, When',       statusCol:'AMP2, Status',     color:'var(--c-amp2)' },
-    { key:'FSO',        qtyCol:'FSO, Qty.',        whenCol:'FSO, When',        statusCol:'FSO, Status',      color:'var(--c-fso)' },
-    { key:'FSO Module', qtyCol:'FSO Module, Qty.', whenCol:'FSO module, When', statusCol:'FSO Module, Status',color:'var(--c-fsomod)' },
-    { key:'EM',         qtyCol:'EM, Qty.',         whenCol:'EM, When',         statusCol:'EM, Status',       color:'var(--c-em)' },
-    { key:'QM',         qtyCol:'QM, Qty.',         whenCol:'QM, When',         statusCol:'QM, Status',       color:'var(--c-qm)' },
-    { key:'Gimbal',     qtyCol:'Gimbal, Qty.',     whenCol:'Gimbal, When',     statusCol:'Status, Gimbal',   color:'var(--c-gimbal)' },
-    { key:'Item',       qtyCol:'Item, Qty.',       whenCol:'When Item',        statusCol:null,               color:'var(--c-fm)' },
+  // Milestone columns are NOT hardcoded — they are detected dynamically from
+  // whatever header row the source sheet has. Any column named "<Name>, Qty."
+  // is treated as a milestone if a matching date column can be found nearby,
+  // named either "<Name>, When" or "When <Name>" (both orderings are supported,
+  // since the sheet has historically used both). A matching "<Name>, Status" or
+  // "Status, <Name>" column is picked up too, if present. This means adding a
+  // new milestone column to the sheet (e.g. "Optical Package") just works,
+  // with no code changes required here.
+
+  // Known milestone names keep their established colors for visual continuity;
+  // any newly-added milestone name gets a stable color from the fallback
+  // palette below (chosen deterministically from the name, so it stays the
+  // same color across reloads/re-parses).
+  const KNOWN_MILESTONE_COLORS = {
+    'sdu':          'var(--c-sdu)',
+    'fts fm':       'var(--c-fts)',
+    'amp2':         'var(--c-amp2)',
+    'fso':          'var(--c-fso)',
+    'fso module':   'var(--c-fsomod)',
+    'em':           'var(--c-em)',
+    'qm':           'var(--c-qm)',
+    'gimbal':       'var(--c-gimbal)',
+    // The "final delivered unit" milestone has been renamed a few times
+    // (Item / Final Item / Flight Item) — keep it visually consistent
+    // regardless of which name the sheet currently uses.
+    'item':         'var(--c-fm)',
+    'final item':   'var(--c-fm)',
+    'flight item':  'var(--c-fm)',
+    'fm':           'var(--c-fm)',
+  };
+  const FALLBACK_MILESTONE_PALETTE = [
+    '#9d6fe0', '#5bd6c0', '#e05b8f', '#8fd65b', '#5b8fe0',
+    '#d6c05b', '#c05bd6', '#5bd68f', '#d68f5b', '#5bb0e0',
   ];
+
+  function normalizeHeader(s){
+    return String(s).toLowerCase().replace(/\s+/g,' ').replace(/\.$/,'').trim();
+  }
+
+  function colorForMilestoneName(name){
+    const norm = normalizeHeader(name);
+    if(KNOWN_MILESTONE_COLORS[norm]) return KNOWN_MILESTONE_COLORS[norm];
+    let h = 0;
+    for(let i=0;i<norm.length;i++){ h = (h*31 + norm.charCodeAt(i)) >>> 0; }
+    return FALLBACK_MILESTONE_PALETTE[h % FALLBACK_MILESTONE_PALETTE.length];
+  }
+
+  // Scan a header row for milestone column groups and return their column
+  // indices + assigned color, in the order they appear in the sheet.
+  function detectMilestones(header){
+    const milestones = [];
+    for(let i=0;i<header.length;i++){
+      const m = header[i].match(/^(.+?),\s*Qty\.?$/i);
+      if(!m) continue;
+      const name = m[1].trim();
+      const nameWhenSuffix = normalizeHeader(name + ', When');
+      const nameWhenPrefix = normalizeHeader('When ' + name);
+      const nameStatusSuffix = normalizeHeader(name + ', Status');
+      const nameStatusPrefix = normalizeHeader('Status, ' + name);
+
+      let whenIdx = -1, statusIdx = -1;
+      const searchEnd = Math.min(header.length, i + 8);
+      for(let j=i+1;j<searchEnd;j++){
+        const c = normalizeHeader(header[j]);
+        if(whenIdx === -1 && (c === nameWhenSuffix || c === nameWhenPrefix)) whenIdx = j;
+        if(statusIdx === -1 && (c === nameStatusSuffix || c === nameStatusPrefix)) statusIdx = j;
+      }
+      if(whenIdx === -1) continue; // no matching date column — not a real milestone group
+
+      milestones.push({
+        key: name,
+        qtyIdx: i,
+        whenIdx: whenIdx,
+        statusIdx: statusIdx,
+        color: colorForMilestoneName(name)
+      });
+    }
+    return milestones;
+  }
+
+  // Populated dynamically each time a table is parsed (see parseTable below).
+  let MILESTONES = [];
 
   const SAMPLE_DATA = ``;
 
   /* ===================== PARSING ===================== */
 
+  const MONTH_NAMES = {
+    jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11
+  };
+
+  function makeUTCDate(year, month, day){
+    const d = new Date(Date.UTC(year, month, day));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Parses a wide variety of date formats, since Google Sheets' displayed
+  // value for a date cell depends on that cell's own number-format setting —
+  // different rows/columns can legitimately show dates differently (with or
+  // without a time-of-day suffix, using slashes/dashes, or written out with a
+  // month name), and a value that fails to parse here is silently dropped
+  // from the timeline. Being permissive avoids the "sometimes a milestone
+  // just doesn't show up" problem caused by an unusual date format.
   function parseDate(str){
     if(!str) return null;
     str = String(str).trim();
     if(!str) return null;
 
+    // Strip a trailing time-of-day component, e.g. "18/03/2027 00:00:00",
+    // "2027-03-18T00:00:00.000Z", "18/03/2027 9:00 AM".
+    str = str.replace(/[T\s]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?\s*(AM|PM)?\s*(Z|GMT[+\-]?\d*)?$/i, '').trim();
+    if(!str) return null;
+
     // ISO-style: YYYY-MM-DD or YYYY/MM/DD
     let m = str.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if(m){
-      const year = parseInt(m[1],10);
-      const month = parseInt(m[2],10) - 1;
-      const day = parseInt(m[3],10);
-      const d = new Date(Date.UTC(year, month, day));
-      return isNaN(d.getTime()) ? null : d;
+      return makeUTCDate(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
     }
 
-    // D/M/YYYY or DD/MM/YYYY (the source table is day/month/year)
-    m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    // D/M/YYYY, DD-MM-YYYY, DD.MM.YYYY etc (the sheet is normally day/month/year).
+    // If the "month" part is out of range (>12) but the "day" part would be a
+    // valid month, assume the cell was actually formatted M/D/YYYY and swap.
+    m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
     if(m){
-      const day = parseInt(m[1],10);
-      const month = parseInt(m[2],10) - 1;
+      let day = parseInt(m[1],10);
+      let month = parseInt(m[2],10) - 1;
       const year = parseInt(m[3],10);
-      const d = new Date(Date.UTC(year, month, day));
-      return isNaN(d.getTime()) ? null : d;
+      if(month > 11 && day >= 1 && day <= 12){
+        const swapDay = month + 1;
+        month = day - 1;
+        day = swapDay;
+      }
+      return makeUTCDate(year, month, day);
+    }
+
+    // "18-Mar-2027", "18 March 2027"
+    m = str.match(/^(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-,]+(\d{4})$/);
+    if(m){
+      const monKey = m[2].slice(0,3).toLowerCase();
+      if(monKey in MONTH_NAMES){
+        return makeUTCDate(parseInt(m[3],10), MONTH_NAMES[monKey], parseInt(m[1],10));
+      }
+    }
+
+    // "Mar 18, 2027", "March 18 2027"
+    m = str.match(/^([A-Za-z]{3,9})[\s\-]+(\d{1,2}),?\s+(\d{4})$/);
+    if(m){
+      const monKey = m[1].slice(0,3).toLowerCase();
+      if(monKey in MONTH_NAMES){
+        return makeUTCDate(parseInt(m[3],10), MONTH_NAMES[monKey], parseInt(m[2],10));
+      }
+    }
+
+    // Last-resort fallback: let the JS engine's native parser try. This
+    // catches other legitimate but unanticipated formats. Only trusted if it
+    // yields a plausible year, to avoid quietly misreading stray text.
+    const fallback = new Date(str);
+    if(!isNaN(fallback.getTime()) && fallback.getFullYear() > 1900 && fallback.getFullYear() < 2200){
+      return makeUTCDate(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
     }
 
     return null;
@@ -810,38 +928,50 @@
     const idxLeadTime = colIndex('Lead time');
     const idxHardDeadline = colIndex('Hard deadline?');
     const idxOrderDeadline = colIndex('T-6m Components order deadline');
+    const idxNotes = colIndex('Notes');
 
     if(idxProduct === -1 || idxProject === -1){
       throw new Error('Could not find "Product" and "Project" columns in header.');
     }
 
-    const milestoneIdx = MILESTONES.map(m => ({
-      ...m,
-      qtyIdx: colIndex(m.qtyCol),
-      whenIdx: colIndex(m.whenCol),
-      statusIdx: m.statusCol ? colIndex(m.statusCol) : -1
-    }));
+    // Milestone columns are discovered from the header itself — see detectMilestones above.
+    const milestoneDefs = detectMilestones(header);
+
+    // Cells that have text in them but fail to parse as a date are tracked
+    // here and surfaced to the user, instead of the milestone/row silently
+    // vanishing with no indication anything was wrong.
+    const dateWarnings = [];
+    function checkDateCell(rawValue, rowNum, columnLabel){
+      const raw = (rawValue || '').trim();
+      if(raw === '') return null; // genuinely blank — not a warning
+      const parsed = parseDate(raw);
+      if(parsed === null){
+        dateWarnings.push(`Row ${rowNum}, "${columnLabel}": could not parse "${raw}" as a date`);
+      }
+      return parsed;
+    }
 
     const rows = [];
     for(let i=startLine+1;i<lines.length;i++){
       const cells = splitTSVLine(lines[i]);
       if(cells.every(c => c.trim()==='')) continue;
+      const displayRowNum = i - startLine; // 1-based, relative to first data row
 
       const product = (cells[idxProduct]||'').trim() || 'Unspecified';
       const project = (cells[idxProject]||'').trim() || '(unnamed)';
-      const startDate = idxStart!==-1 ? parseDate(cells[idxStart]) : null;
+      const startDate = idxStart!==-1 ? checkDateCell(cells[idxStart], displayRowNum, 'Start Date') : null;
       const client = idxClient!==-1 ? (cells[idxClient]||'').trim() : '';
       const status = idxStatus!==-1 ? (cells[idxStatus]||'').trim() : '';
       const priority = idxPriority!==-1 ? (cells[idxPriority]||'').trim() : '';
       const priorityCalc = idxPriorityCalc!==-1 ? parseQty(cells[idxPriorityCalc]) : null;
       const leadTime = idxLeadTime!==-1 ? parseQty(cells[idxLeadTime]) : null;
       const hardDeadline = idxHardDeadline!==-1 ? (cells[idxHardDeadline]||'').trim() : '';
-      const orderDeadline = idxOrderDeadline!==-1 ? parseDate(cells[idxOrderDeadline]) : null;
+      const orderDeadline = idxOrderDeadline!==-1 ? checkDateCell(cells[idxOrderDeadline], displayRowNum, 'T-6m Components order deadline') : null;
+      const notes = idxNotes!==-1 ? (cells[idxNotes]||'').trim() : '';
 
       const milestones = [];
-      milestoneIdx.forEach(m => {
-        if(m.whenIdx === -1) return;
-        const when = parseDate(cells[m.whenIdx]);
+      milestoneDefs.forEach(m => {
+        const when = checkDateCell(cells[m.whenIdx], displayRowNum, m.key + ', When');
         const qty = m.qtyIdx!==-1 ? parseQty(cells[m.qtyIdx]) : null;
         const mStatus = m.statusIdx!==-1 ? (cells[m.statusIdx]||'').trim() : '';
         if(when){
@@ -854,14 +984,14 @@
 
       rows.push({
         product, project, startDate, milestones, client, status,
-        priority, priorityCalc, leadTime, hardDeadline, orderDeadline,
+        priority, priorityCalc, leadTime, hardDeadline, orderDeadline, notes,
         rowIndex: i
       });
     }
 
     if(rows.length===0) throw new Error('No plottable rows found (need at least a Start Date or one milestone date per row).');
 
-    return rows;
+    return { rows, milestones: milestoneDefs, warnings: dateWarnings };
   }
 
   /* ===================== STATE ===================== */
@@ -896,6 +1026,7 @@
     sheetSyncText: document.getElementById('sheetSyncText'),
     syncDot: document.getElementById('syncDot'),
     syncText: document.getElementById('syncText'),
+    subtitleLine: document.getElementById('subtitleLine'),
   };
 
   els.dataInput.value = SAMPLE_DATA;
@@ -923,6 +1054,12 @@
     html += `<div class="legend-item"><span class="priority-badge p-low">Low</span></div>`;
     html += `<div class="legend-item"><span class="deadline-flag yes">Hard deadline</span></div>`;
     els.legend.innerHTML = html;
+
+    // Keep the header subtitle in sync with whatever milestone columns were
+    // actually detected in the loaded sheet, instead of a hardcoded list.
+    els.subtitleLine.textContent = MILESTONES.length
+      ? MILESTONES.map(m => m.key).join(' \u2192 ')
+      : "Milestones are detected automatically from your sheet's column headers";
   }
   buildLegend();
 
@@ -1319,13 +1456,20 @@
 
       const text = (result && result.tsv) || '';
       const parsed = parseTable(text);
-      if(parsed.length === 0){
+      if(parsed.rows.length === 0){
         throw new Error('Connected, but no plottable rows were found in the sheet.');
       }
 
-      DATA = parsed;
+      DATA = parsed.rows;
+      MILESTONES = parsed.milestones;
+      buildLegend();
       render();
-      setSyncState('live', `Live — ${parsed.length} row${parsed.length!==1?'s':''}, updated ${fmtTime(new Date())}`);
+      if(parsed.warnings && parsed.warnings.length){
+        console.warn('Dates that could not be parsed:\n' + parsed.warnings.join('\n'));
+        setSyncState('live', `Live — ${parsed.rows.length} row${parsed.rows.length!==1?'s':''}, updated ${fmtTime(new Date())} — ⚠ ${parsed.warnings.length} date${parsed.warnings.length!==1?'s':''} could not be read, see console`);
+      } else {
+        setSyncState('live', `Live — ${parsed.rows.length} row${parsed.rows.length!==1?'s':''}, updated ${fmtTime(new Date())}`);
+      }
       saveConnection(url, token);
       return true;
 
@@ -1343,9 +1487,18 @@
 
   els.renderBtn.addEventListener('click', ()=>{
     try{
-      DATA = parseTable(els.dataInput.value);
-      els.parseMsg.textContent = `Parsed ${DATA.length} row${DATA.length!==1?'s':''} successfully.`;
-      els.parseMsg.className = 'parse-msg ok';
+      const parsed = parseTable(els.dataInput.value);
+      DATA = parsed.rows;
+      MILESTONES = parsed.milestones;
+      buildLegend();
+      if(parsed.warnings && parsed.warnings.length){
+        console.warn('Dates that could not be parsed:\n' + parsed.warnings.join('\n'));
+        els.parseMsg.textContent = `Parsed ${DATA.length} row${DATA.length!==1?'s':''}, but ${parsed.warnings.length} date${parsed.warnings.length!==1?'s':''} could not be read (see browser console for details).`;
+        els.parseMsg.className = 'parse-msg warn';
+      } else {
+        els.parseMsg.textContent = `Parsed ${DATA.length} row${DATA.length!==1?'s':''} successfully.`;
+        els.parseMsg.className = 'parse-msg ok';
+      }
       render();
       els.inputPanel.removeAttribute('open');
     }catch(err){
@@ -1356,7 +1509,10 @@
 
   els.resetBtn.addEventListener('click', ()=>{
     els.dataInput.value = SAMPLE_DATA;
-    DATA = SAMPLE_DATA ? parseTable(SAMPLE_DATA) : [];
+    const parsed = SAMPLE_DATA ? parseTable(SAMPLE_DATA) : { rows: [], milestones: [], warnings: [] };
+    DATA = parsed.rows;
+    MILESTONES = parsed.milestones;
+    buildLegend();
     els.parseMsg.textContent = `Reset to sample data (${DATA.length} rows).`;
     els.parseMsg.className = 'parse-msg ok';
     render();
@@ -1416,7 +1572,10 @@
   /* ===================== INIT ===================== */
 
   try{
-    DATA = SAMPLE_DATA ? parseTable(SAMPLE_DATA) : [];
+    const parsedInit = SAMPLE_DATA ? parseTable(SAMPLE_DATA) : { rows: [], milestones: [], warnings: [] };
+    DATA = parsedInit.rows;
+    MILESTONES = parsedInit.milestones;
+    buildLegend();
     render();
   }catch(err){
     console.error(err);
